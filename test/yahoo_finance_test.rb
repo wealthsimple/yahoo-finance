@@ -9,9 +9,9 @@ class YahooFinanceTest < Test::Unit::TestCase
   end
 
   def test_finance_utils_markets
-    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS['us'])
-    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS['us']['nyse'].url)
-    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS['us']['nasdaq'].url)
+    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS.us)
+    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS.us.nyse.url)
+    assert_not_equal(nil, YahooFinance::FinanceUtils::MARKETS.us.nasdaq.url)
   end
 
   def test_finance_utils_stock_by_market
@@ -27,6 +27,7 @@ class YahooFinanceTest < Test::Unit::TestCase
     columns.each do |col|
       assert quote.send(col), 'quote.#{col} was nil #{quote}'
     end
+    assert !quote.symbol.nil?, ':symbol name is always present'
   end
 
   def test_simple_quotes
@@ -35,17 +36,26 @@ class YahooFinanceTest < Test::Unit::TestCase
     assert_equal(2, quotes.size)
   end
 
+  def test_not_found
+    ycl = YahooFinance::Client.new
+    quotes = ycl.quotes(['AaaAPLLL'])
+    # not found symbols are still returned
+    assert_equal(1, quotes.size)
+  end
+
   def test_custom_columns
     ycl = YahooFinance::Client.new
-    ycl.quotes(
-      ['AAPL', 'MSFT', 'BVSP', 'JPYUSD'],
-      YahooFinance::Client::COLUMNS.take(20).collect { |k, v| v }, raw: false)
+    q = ycl.quotes(['AAPL'], YahooFinance::Client::COLUMNS.map { |k, v| k }, { raw: false })[0]
+    q.each_pair do |k, v|
+      type = YahooFinance::Client::COLUMNS[k][1]
+      assert v.is_a?(type), "conversion failed: #{k} - #{v} (#{v.class.to_s} should be #{type.to_s})" if !v.nil?
+    end
   end
 
   def test_historical_quotes
     ycl = YahooFinance::Client.new
-    q = ycl.historical_quotes(
-      'MSFT', raw: false, period: :daily, start_date: days_ago(40))
+    q = ycl.historical_quotes('MSFT', raw: false, period: :daily, start_date: days_ago(40))
+    
     [:trade_date, :open, :high, :low, :close, :volume, :adjusted_close].each do |col|
       assert q.first.send(col)
     end
@@ -61,8 +71,7 @@ class YahooFinanceTest < Test::Unit::TestCase
 
   def test_dividends
     ycl = YahooFinance::Client.new
-    q = ycl.historical_quotes(
-      'MSFT', raw: false, period: :dividends_only, start_date: days_ago(400))
+    q = ycl.historical_quotes('MSFT', raw: false, period: :dividends_only, start_date: days_ago(400))
     assert q.first.dividend_pay_date
     assert q.first.dividend_yield
   end
@@ -92,5 +101,15 @@ class YahooFinanceTest < Test::Unit::TestCase
       symbols.first.symbol
       symbols.first.name
     end
+  end
+
+  def test_na_as_nil
+    ycl = YahooFinance::Client.new
+    quotes = ycl.quotes(['non_exisiting_symbol'], [:name, :notes])
+    assert_equal('N/A', quotes.first.name)
+    assert_equal('N/A', quotes.first.notes)
+    quotes = ycl.quotes(['non_exisiting_symbol'], [:name, :notes], na_as_nil: true)
+    assert_equal(nil, quotes.first.name)
+    assert_equal(nil, quotes.first.notes)
   end
 end
